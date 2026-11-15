@@ -155,8 +155,13 @@ jobs:
           set -euo pipefail
           port="${VM_PORT:-22}"
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/vultr
+          # Strip CRs (secrets pasted from Windows) and make sure the file ends with a newline.
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/vultr
           chmod 600 ~/.ssh/vultr
+          if ! ssh-keygen -y -P '' -f ~/.ssh/vultr > /dev/null 2>&1; then
+            echo "::error::VULTR_SSH_KEY is not a usable private key. It must be the whole private key file, from '-----BEGIN ... PRIVATE KEY-----' to '-----END ... PRIVATE KEY-----', with no passphrase (not the .pub file). Re-set it with: gh secret set VULTR_SSH_KEY < ~/.ssh/drainsense_deploy"
+            exit 1
+          fi
           if [[ -n "$KNOWN_HOSTS" ]]; then
             printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           else
@@ -170,9 +175,42 @@ jobs:
             Port ${port}
             IdentityFile ~/.ssh/vultr
             StrictHostKeyChecking yes
+            BatchMode yes
+            IdentitiesOnly yes
             ServerAliveInterval 30
           EOF
           ssh vm 'echo "connected to $(hostname) ($(uname -m)), $(docker compose version)"'
+
+      - name: Install Docker if the instance has none
+        run: |
+          set -euo pipefail
+          if ssh vm 'docker compose version' >/dev/null 2>&1; then
+            echo "Docker and Compose are already installed."
+            exit 0
+          fi
+          # Needs root, or a user with passwordless sudo. deploy/vultr/bootstrap.sh sets the instance up the same way.
+          ssh vm 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          if [ "$(id -u)" = 0 ]; then SUDO=""
+          elif sudo -n true 2>/dev/null; then SUDO="sudo"
+          else
+            echo "::error::Docker is missing and this user cannot install it. Run deploy/vultr/bootstrap.sh as root on the instance, or set VULTR_USER=root."
+            exit 1
+          fi
+          # Force IPv4 and retry: some instances see stalled IPv6 and flaky mirrors.
+          printf 'Acquire::ForceIPv4 "true";\nAcquire::Retries "5";\n' | $SUDO tee /etc/apt/apt.conf.d/99network >/dev/null
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSL --retry 3 https://get.docker.com -o /tmp/get-docker.sh && $SUDO sh /tmp/get-docker.sh; then break; fi
+            echo "Docker install attempt ${attempt} failed; retrying in 20 s"
+            sleep 20
+          done
+          $SUDO systemctl enable --now docker
+          if [ "$(id -u)" != 0 ]; then $SUDO usermod -aG docker "$(id -un)"; fi
+          $SUDO install -d -m 755 -o "$(id -un)" -g "$(id -gn)" /opt/drainsense
+          $SUDO docker compose version
+          REMOTE
+          # A new SSH session picks up the docker group.
+          ssh vm 'docker compose version'
 
       - name: Upload the bundle
         env:
