@@ -1,0 +1,21 @@
+# SITE_ADDRESS comes from .env (DRAINSENSE_SITE_ADDRESS), e.g. drainsense.203.0.113.7.sslip.io
+# or your own domain. Caddy gets and renews the Let's Encrypt certificate for it.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# API, Swagger UI, ReDoc and the schema. The desk calls these on its own origin.
+	@api path /api/* /docs /docs/* /redoc /openapi.json
+	handle @api {
+		reverse_proxy drainsense-api:8000
+	}
+
+	# Everything else is the Next.js desk.
+	handle {
+		reverse_proxy drainsense-web:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

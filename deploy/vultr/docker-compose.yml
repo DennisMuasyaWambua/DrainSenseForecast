@@ -1,0 +1,63 @@
+# DrainSense on a Vultr instance (deployed by .github/workflows/ci.yml into /opt/drainsense).
+#   caddy            the only service with host ports (80/443): HTTPS via Let's Encrypt, routing
+#   drainsense-api   FastAPI: risk map, drainage log, flood-impact model (/api/v1, /docs, /openapi.json)
+#   drainsense-web   Next.js desk (everything else)
+# .env is written by the deploy: DRAINSENSE_API_IMAGE, DRAINSENSE_WEB_IMAGE, DRAINSENSE_SITE_ADDRESS.
+name: drainsense
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "5"}
+
+services:
+  drainsense-api:
+    image: ${DRAINSENSE_API_IMAGE:?DRAINSENSE_API_IMAGE is set by the deploy}
+    environment:
+      DRAINSENSE_DB: /data/drainsense.sqlite
+    volumes:
+      - api-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging: *logging
+
+  drainsense-web:
+    image: ${DRAINSENSE_WEB_IMAGE:?DRAINSENSE_WEB_IMAGE is set by the deploy}
+    restart: unless-stopped
+    depends_on: [drainsense-api]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on: [drainsense-api, drainsense-web]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${DRAINSENSE_SITE_ADDRESS:?DRAINSENSE_SITE_ADDRESS is set by the deploy}
+    volumes:
+      # A directory mount, not a single-file one: the deploy replaces the Caddyfile, and a
+      # single-file bind mount would keep pointing at the old inode.
+      - ./caddy:/etc/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: *logging
+
+volumes:
+  # SQLite drainage log: survives redeploys.
+  api-data:
+  # Let's Encrypt account and certificates: keep them, or every redeploy re-issues.
+  caddy-data:
+  caddy-config:

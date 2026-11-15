@@ -95,7 +95,7 @@ python3 -m model.weather && python3 -m model.impact --rebuild
 
 ## Production
 
-**https://drainsense.158.180.57.75.sslip.io** (Swagger UI at `/docs`), on the Oracle VM next to NGAO. Pushes to `main` build the images, publish them to GHCR, and deploy them once the `ORACLE_VM_*` secrets are set. [`docs/DEPLOY_DRAINSENSE.md`](docs/DEPLOY_DRAINSENSE.md) has the setup, the manual deploy, rollback, and logs.
+**https://drainsense.158.180.57.75.sslip.io** (Swagger UI at `/docs`), on the Oracle VM next to NGAO. Pushes to `main` build the images, publish them to GHCR, and deploy them to a Vultr instance once the `VULTR_*` secrets are set. [`docs/DEPLOY_VULTR.md`](docs/DEPLOY_VULTR.md) has the setup, the manual deploy, rollback, and logs; [`docs/DEPLOY_DRAINSENSE.md`](docs/DEPLOY_DRAINSENSE.md) covers the earlier Oracle VM.
 
 ## Run it
 
@@ -175,7 +175,8 @@ python3 -m model.train --refit
 | `model/artifacts/impact/` | Event table, both `.cbm` models, `impact_metrics.json`, held-out predictions |
 | `model/notebooks/` | Walkthrough notebook for the impact model |
 | `api/openapi.json`, `api/postman/` | Committed Swagger schema and Postman collection |
-| `deploy/oracle-vm/`, `web/Dockerfile` | Production Compose file, Caddy site, deploy script, desk image |
+| `deploy/vultr/`, `web/Dockerfile` | Production Compose file (with Caddy), deploy and bootstrap scripts, desk image |
+| `deploy/oracle-vm/` | Earlier Oracle VM deploy (shares NGAO's Caddy) |
 | `api/` | FastAPI. Scores come from the artifacts. SQLite holds the drainage log. |
 | `web/` | Next.js desk, MapLibre, CARTO Dark Matter vector basemap |
 | `backend/scoring/heuristics.py` | NGAO heavy-rain constant used by the flood model |
